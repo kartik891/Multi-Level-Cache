@@ -1,10 +1,9 @@
 import LRUCache from "./LRUCache";
 import RedisC from "./redis"
 import Postgres from "./postgres";
-import 'dotenv/config';
 import redisClient from "./redis-config";
 import pool from "./postgres-config";
-
+import 'dotenv/config';
 
 interface UserProfile {
     name: string,
@@ -56,8 +55,8 @@ class RedisCache<K, V> implements CacheFunctions<K, V> {
 class PostgresData<K, V> implements CacheFunctions<K, V> {
     constructor(
         private postgres: Postgres<K, V>
-    ) {}
-    
+    ) { }
+
     async get(key: K): Promise<V | null> {
         return this.postgres.get(key);
     }
@@ -92,32 +91,64 @@ class CacheService<K, V> {
                 await this.l1.put(key, l2Val);
                 return l2Val;
             }
-        }catch(err){
-            console.log(err);
+        } catch (err) {
+            console.log("Redis Err");
+
         }
 
-        const l3Val = await this.l3.get(key);
+        try {
+            const l3Val = await this.l3.get(key);
+            if (l3Val !== null) {
+                await this.l1.put(key, l3Val);
 
-        if (l3Val !== null) {
-            await this.l1.put(key, l3Val);
-            await this.l2.put(key, l3Val);
-            return l3Val;
+                try {
+                    await this.l2.put(key, l3Val);
+                } catch (err) {
+                    console.log("Redis Put Err");
+                }
+
+                return l3Val;
+            }
+        } catch (err) {
+            console.log("Postgres Err");
         }
 
+        console.log("Key not present in Database");
         return null;
     }
 
     async put(key: K, value: V): Promise<void> {
-
         await this.l3.put(key, value);
-        await this.l2.put(key, value);
-        await this.l1.put(key, value);
+
+        try {
+            await this.l2.put(key, value);
+        }
+        catch (err) {
+            console.log("Redis Put Err");
+        }
+
+        try {
+            await this.l1.put(key, value);
+        } catch (err) {
+            console.log("LRU Cache Put Err");
+        }
+
     }
 
     async deleteKey(key: K): Promise<void> {
 
-        await this.l1.deleteKey(key);
-        await this.l2.deleteKey(key);
+        try {
+            await this.l1.deleteKey(key);
+        } catch (err) {
+            console.log("LRU Cache Delete Err");
+        }
+
+        try {
+            await this.l2.deleteKey(key);
+        } catch (err) {
+            console.log("Redis Delete Err");
+        }
+
         await this.l3.deleteKey(key);
     }
 }
